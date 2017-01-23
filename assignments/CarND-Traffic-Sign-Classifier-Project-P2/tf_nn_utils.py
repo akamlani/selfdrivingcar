@@ -91,10 +91,15 @@ def load_checkpoints(**kwargs):
     if not os.path.exists('./ckpts'):
         os.makedirs('./ckpts')
     try:
-        ckpt = tf.train.get_checkpoint_state('./ckpts')
         saver_rst = tf.train.Saver()
-        saver_rst.restore(sess, ckpt.model_checkpoint_path)
-        print("Restored checkpoint from: {}".format(ckpt.model_checkpoint_path))
+        saver_rst.restore(sess, tf.train.latest_checkpoint('ckpts'))
+        print('restored checkpoint')
+        #ckpt = tf.train.get_checkpoint_state('./ckpts')
+        #saver_rst = tf.train.Saver()
+	    #saver_rst.restore(sess, tf.train.latest_checkpoint('./ckpts')
+  	    #print ('restored checkpoint')
+	    #saver_rst.restore(sess, ckpt.model_checkpoint_path)
+        #print("Restored checkpoint from: {}".format(ckpt.model_checkpoint_path))
     except:
         print("Failed to restore checkpoint, initializing variables")
         init_op = tf.global_variables_initializer()
@@ -135,7 +140,7 @@ def train(train, validation, tensors, **kwargs):
                 #     accuracy_batch.append(accuracy)
 
             # checkpoint (ckpt) model on every epoch iteration
-            save_path = saver.save(sess, kwargs['model'] + '.ckpt' )
+            save_path = saver.save(sess, kwargs['model'] )
     return batches, loss_batch, accuracy_batch
 
 def create_feed_dict(tensors, features, labels, phase, **kwargs):
