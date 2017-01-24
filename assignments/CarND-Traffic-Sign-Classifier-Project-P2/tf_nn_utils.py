@@ -93,12 +93,9 @@ def load_checkpoints(**kwargs):
     try:
         saver_rst = tf.train.Saver()
         saver_rst.restore(sess, tf.train.latest_checkpoint('ckpts'))
-        print('restored checkpoint')
+        print('restored checkpoint: {}'.format(kwargs['model']))
         #ckpt = tf.train.get_checkpoint_state('./ckpts')
-        #saver_rst = tf.train.Saver()
-	    #saver_rst.restore(sess, tf.train.latest_checkpoint('./ckpts')
-  	    #print ('restored checkpoint')
-	    #saver_rst.restore(sess, ckpt.model_checkpoint_path)
+        #saver_rst.restore(sess, ckpt.model_checkpoint_path)
         #print("Restored checkpoint from: {}".format(ckpt.model_checkpoint_path))
     except:
         print("Failed to restore checkpoint, initializing variables")
