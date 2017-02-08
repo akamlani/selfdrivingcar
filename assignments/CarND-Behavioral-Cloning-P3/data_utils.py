@@ -1,0 +1,20 @@
+import pandas as pd
+import numpy as np 
+
+# shift angle for each camera
+def lateral_shift(df, scale=(0.30,0.10)):
+    cols = ['center','left','right','steering']
+    df_sub = df.loc[:,cols]
+    adjustment = lambda x,sign: x + sign*np.random.uniform(*scale, 1)[0]
+    df_sub.loc[:, 'left_steering']  = df_sub['steering'].apply(lambda x: adjustment(x,1.0)  if x!=0.0 else x)
+    df_sub.loc[:, 'right_steering'] = df_sub['steering'].apply(lambda x: adjustment(x,-1.0) if x!=0.0 else x)
+    return df_sub
+
+def combine_dataset(df):
+    # concatenate appropriately all steering angles and IMGS
+    df_ct = df[df.steering == 0.0][['center', 'steering']].values
+    df_lt = df[df.left_steering  != df.steering][['left', 'left_steering']].values
+    df_rt = df[df.right_steering != df.steering][['right', 'right_steering']].values
+    df_comb = pd.DataFrame(np.concatenate((df_lt,df_ct,df_rt),axis=0), columns=['image', 'steering'])
+    # shuffle combined data here
+    return df_comb.sample(frac=1.0).reset_index(drop=True)
