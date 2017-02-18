@@ -1,76 +1,19 @@
 import numpy as np
-import pickle
-import json
-import time
-import os
-import cv2
 
-from sklearn.utils import shuffle
-import matplotlib.image as mpimg
-
-import keras.callbacks as cb
 from keras.optimizers import SGD, Adam, RMSprop
-from keras.models import model_from_json, Model, Sequential
+from keras.models import Sequential
 
-from keras.layers import Dense, Dropout, Activation, Flatten, Lambda, ELU
-from keras.layers import Convolution2D, MaxPooling2D
+import keras.backend as K
+from keras.layers import Flatten, Dense, Dropout, BatchNormalization, Activation, ELU, Lambda, Input
+from keras.layers.convolutional import Convolution2D, MaxPooling2D, Cropping2D
 from keras.regularizers import l2
 
-import pydot
-from keras.preprocessing.image import ImageDataGenerator
-from keras.utils.visualize_util import plot
-
-# Transfer Learning
-# from keras.applications.vgg16 import VGG16
-# from keras.applications.vgg19 import VGG19
-# from keras.applications.resnet50 import ResNet50
-# from keras.applications.inception_v3 import InceptionV3
-
-
-def batch_generator(data_path, features, target, batch_size):
-    # https://github.com/fchollet/keras/blob/master/keras/preprocessing/image.py
-    image_dim = (64,64,3)
-    resize_image = lambda img,size: cv2.resize(img, size, interpolation = cv2.INTER_AREA)
-    while True:
-        X, y = shuffle(features, target)
-        n_batches = int(len(X)/batch_size)
-        for offset in range(0, len(X), batch_size):
-            end = offset + batch_size
-            batch_x, batch_y = features[offset:end], target[offset:end]
-            # possible to have not even batches
-            batch_size = len(batch_y)
-            X_im  = np.zeros((batch_size,*image_dim), dtype=np.uint8)
-            # resize image per batch
-            for idx, sample in enumerate(batch_x):
-                X_im[idx,:,:,:]  = resize_image(mpimg.imread(data_path + sample), (64,64) )
-            # TBD: perform any augmentation
-            yield(X_im, batch_y)
-
-
-def get_model_callbacks(weights_name='model.h5'):
-    # Save the best model as and when created
-    # period=number of epochs between checkpoints, monitor=['val_loss', 'val_acc']
-    checkpoint = cb.ModelCheckpoint(weights_name,
-                                    monitor='val_loss', mode='auto',
-                                    save_best_only=True, save_weights_only=False, verbose=1)
-    # Terminate condition if model does not improve
-    # patience = number of epochs w/no imrovement after which training will be stopped
-    # min_delta = minimum change to qualify as improvement
-    early_stopping = cb.EarlyStopping(monitor='val_loss',
-                                      min_delta=0, patience=10,
-                                      mode='auto', verbose=1)
-    # Visualizations
-    # histogram_freq = frequency in epochs at which to compute activation histogram
-    tensorboard = cb.TensorBoard(log_dir='./summaries',
-                                 histogram_freq=0, write_graph=True, write_images=False)
-
-
-    return [checkpoint, early_stopping]
-
+import train as tr
+import nn_utils as nu
 
 def attr_layer(model, **kwargs):
     if 'batchnorm' in kwargs and kwargs['batchnorm']:
-        pass
+        model.add(BatchNormalization())
     if 'activation' in kwargs and kwargs['activation']:
         model.add(Activation(kwargs['activation']))
     if 'maxpool' in kwargs and kwargs['maxpool']:
@@ -80,95 +23,178 @@ def attr_layer(model, **kwargs):
     return model
 
 def create_dense(model, layer_name, num_neurons, **kwargs):
-    model.add(Dense(output_dim=num_neurons, activation=None, name=layer_name))
-    model = attr_layer(model, **kwargs)
+    model.add(Dense(output_dim=num_neurons, activation=None, init='uniform', name=layer_name))
+    return attr_layer(model, **kwargs)
+
+def create_conv(model, out_depth, layer_name, **kwargs):
+
+
+    """
+    glorot_normal: Gaussian initialization scaled by fan_in + fan_out (Glorot 2010)
+    glorot_uniform
+    """
+
+    model.add(Convolution2D(out_depth, *kwargs['kernel'],
+                            init ='glorot_uniform', name=layer_name,
+                            subsample=kwargs['stride'], border_mode='same') )
+    return attr_layer(model, **kwargs)
+
+
+def create_baselayer(image_dim, crop_dim):
+    # camera format(dim_ordering=tf): input_shape=(samples, rows(height=y), cols(width=x), channels)
+    # apply normalization, cropping within model: take advantage of gpu
+    model  = Sequential()
+    # Normalize batch at model for faster computation [normalize between: [-0.5,0.5]]
+    # normalize/unnormalize steering angles: already normalized in dataset
+    model.add(Lambda(lambda x: ((x/255.0) - 0.5), input_shape=image_dim, output_shape=image_dim))
+    # crop region to focus on primary focus
+    model.add(Cropping2D(cropping=crop_dim))
+    # reize causes memory here, so handle it in the batch generator
     return model
 
-def create_model(learning_rate=1e-4, loss_metric='mse', **kwargs):
-    model  = Sequential()
-    # activation: ReLU vs ELU
-    # http://www.picalike.com/blog/2015/11/28/relu-was-yesterday-tomorrow-comes-elu/
+def create_model_tl(learning_rate=1e-4, loss_metric='mse', **kwargs):
+    """
+    from keras.applications import vgg16
+    from keras import backend as K
 
+    # get the symbolic outputs of each "key" layer (we gave them unique names).
+    outputs_dict = dict([(layer.name, layer.output) for layer in model.layers])
 
-    model.add(Convolution2D(32, 3, 3, border_mode='same', input_shape=(64,64,3)  ))
-    model.add(Activation('relu'))
+    model = vgg16.VGG16(input_tensor=input_tensor, weights='imagenet', include_top=False)
+    img = vgg16.preprocess_input(img)
 
+    # save bottleneck features and reuse
+    bottleneck_features_train = model.predict_generator(generator, 2000)
+    np.save(open('bottleneck_features_train.npy', 'w'), bottleneck_features_train)
+    bottleneck_features_validation = model.predict_generator(generator, 800)
+    np.save(open('bottleneck_features_validation.npy', 'w'), bottleneck_features_validation)
+    train_data = np.load(open('bottleneck_features_train.npy'))
+    validation_data = np.load(open('bottleneck_features_validation.npy'))
+    """
 
+def create_model_custom(learning_rate=1e-4, loss_metric='mse', **kwargs):
+    """
+    Create a custom model based on nvidia model
+    """
+    activation = 'elu'
+    image_dim, crop_dim = (160,320,3), ((75,25),(10,10))
+    model = create_baselayer(image_dim, crop_dim)
+
+    # Conv1: Kernel: 3,3; Stride=1; Input depth: 3,  Output Depth: 24
+    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True}
+    model = create_conv(model, out_depth=24, layer_name='conv1', **params)
+    # Conv2: Kernel: 3,3; Stride=1; Input depth: 24,  Output Depth: 36
+    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True, 'maxpool': True}
+    model = create_conv(model, out_depth=36, layer_name='conv2', **params)
+    # Conv3: Kernel: 3,3; Stride=1; Input depth: 36,  Output Depth: 48
+    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True}
+    model = create_conv(model, out_depth=48, layer_name='conv3', **params)
+    # Conv4: Kernel: 3,3; Stride=1; Input depth: 48,  Output Depth: 72
+    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True, 'maxpool': True}
+    model = create_conv(model, out_depth=72, layer_name='conv4', **params)
+    # Conv5: Kernel: 3,3; Stride=1; Input depth: 48,  Output Depth: 72
+    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True}
+    model = create_conv(model, out_depth=96, layer_name='conv5', **params)
+
+    # Flatten number of ndurons should be 1164 per NVIDIA model
     model.add(Flatten())
     # dropout probability: tensorflow: percent=proba_keep, keras=p1-proba_keep
-    params = {'activation': 'elu', 'dropout_proba': 0.5}
+    params = {'activation': activation, 'batchnorm': True}#, 'dropout_proba': 0.25}
+    model = create_dense(model, layer_name='dense_1', num_neurons=100, **params)
+    model = create_dense(model, layer_name='dense_2', num_neurons=50,  **params)
+    model = create_dense(model, layer_name='dense_3', num_neurons=10,  **params)
+    # output layer: number of neurons=1; no softmax layer is used in last FC layer
+    model.add(Dense(1, name='dense_output'))
+    # compile the model
+    opt = Adam(lr=learning_rate)
+    model.compile(optimizer=opt, loss=loss_metric, metrics=['accuracy'])
+    return model
+
+
+def create_model_nvidia(learning_rate=1e-4, loss_metric='mse', **kwargs):
+    """
+    nvidia paper:
+    http://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf
+    http://www.picalike.com/blog/2015/11/28/relu-was-yesterday-tomorrow-comes-elu/
+    """
+    # apply normalization, cropping layers
+    image_dim, crop_dim = (160,320,3), ((75,25),(10,10))
+    model = create_baselayer(image_dim, crop_dim)
+
+    # Conv1: Kernel: 5,5; Stride=2; Input depth: 3,  Output Depth: 24
+    params = {'kernel':(5,5), 'stride':(2,2), 'activation': 'elu'}
+    model = create_conv(model, out_depth=24, layer_name='conv1', **params)
+    # Conv2: Kernel: 5,5; Stride=2; Input depth: 24, Output Depth: 36
+    model = create_conv(model, out_depth=36, layer_name='conv2', **params)
+    # Conv3: Kernel: 5,5; Stride=2; Input depth: 36, Output Depth: 48
+    model = create_conv(model, out_depth=48, layer_name='conv3', **params)
+    # Conv4: Kernel: 3,3; Stride=1; Input depth: 48, Output Depth: 64
+    params = {'kernel':(3,3), 'stride':(1,1), 'activation': 'elu'}
+    model = create_conv(model, out_depth=64, layer_name='conv4', **params)
+    # Conv5: Kernel: 3,3; Stride=1; Input depth: 64, Output Depth: 64
+    model = create_conv(model, out_depth=64, layer_name='conv5', **params)
+
+    # Flatten number of ndurons should be 1164 per NVIDIA model
+    model.add(Flatten())
+    # dropout probability: tensorflow: percent=proba_keep, keras=p1-proba_keep
+    params = {'activation': 'elu'}
     model = create_dense(model, layer_name='dense_1', num_neurons=100, **params)
     model = create_dense(model, layer_name='dense_2', num_neurons=50,  **params)
     model = create_dense(model, layer_name='dense_3', num_neurons=10,  **params)
     # output layer: number of neurons=1; no softmax layer is used in last FC layer
     model.add(Dense(1, name='dense_ouput'))
-    opt = Adam(lr=1e-4)
-    model.compile(optimizer=opt, loss='mse', metrics=['accuracy'])
 
+    # compile model: commai used defaults
     opt = Adam(lr=learning_rate)
-    model.compile(optimizer=opt, loss=loss_metric, metrics=['accuracy'])
-
+    model.compile(optimizer="adam", loss=loss_metric, metrics=['accuracy'])
     return model
 
 
-def train(train, validation, model, **kwargs):
-    data_path = 'data/udacity/'
-    train_generator = batch_generator(data_path, *train, kwargs['batch_size'])
-    val_generator   = batch_generator(data_path, *validation, kwargs['batch_size'])
-
-    train_start_time = time.time()
-    hist = model.fit_generator( generator=train_generator,
-                                validation_data=val_generator,
-                                samples_per_epoch=len(train[0]),
-                                nb_val_samples=len(validation[0]),
-                                nb_epoch=kwargs['num_epochs'],
-                                callbacks=get_model_callbacks(),
-                                verbose=1
-    )
-    history = hist.history
-    train_end_time = time.time()
-    train_time = train_end_time - train_start_time
-    print("Training time: {:.2} sec {:.2} min".format(train_time, train_time/60))
-    # save model
-    save_model(model, history)
+def create_model_commaai(learning_rate=1e-4, loss_metric='mse', **kwargs):
+    """
+    Comma.ai paper: https://arxiv.org/pdf/1608.01230.pdf
+    Comma.ai code:  https://github.com/commaai/research/blob/master/train_steering_model.py
+    """
+    image_dim, crop_dim = (160,320,3), ((75,25),(10,10))
+    model = create_baselayer(image_dim, crop_dim)
+    # convolutional layers
+    model.add(Convolution2D(16, 8, 8, subsample=(4, 4), border_mode="same"))
+    model.add(ELU())
+    model.add(Convolution2D(32, 5, 5, subsample=(2, 2), border_mode="same"))
+    model.add(ELU())
+    model.add(Convolution2D(64, 5, 5, subsample=(2, 2), border_mode="same"))
+    # Dense Layers
+    model.add(Flatten())
+    model.add(Dropout(.2))
+    model.add(ELU())
+    model.add(Dense(512))
+    model.add(Dropout(.5))
+    model.add(ELU())
+    model.add(Dense(1))
+    # compile model: commai used defaults
+    model.compile(optimizer="adam", loss=loss_metric, metrics=['accuracy'])
     return model
 
-def save_model(model, history, model_name='model'):
-    if not os.path.exists('./ckpts'): os.makedirs('./ckpts')
-    model_json_name = './ckpts/' + model_name + '.json'
-    model_name = './ckpts/'+ model_name +'.h5'
-    # Save model weights
-    model.save_weights(model_name)
-    # Save model config (architecture)
-    model_json = model.to_json()
-    with open(model_json_name, "w") as f: f.write(model_json)
-    print("Model Saved: {}, {}".format(model_name, model_json_name))
-    # Save Training history
-    with open('training_history.p', 'wb') as f:
-        pickle.dump(history, f, protocol=pickle.HIGHEST_PROTOCOL)
-    # model.save(model_name)
-    # model.load_weights(model_name)
 
-def save_architecture(model, model_name='model'):
-    # Save Model Visualization
-    # conda install GraphViz; pip install pydot3; binstar search -t conda pydot
-    model_file = './graphs/model_architecture.png'
-    if not os.path.exists('./graphs'): os.makedirs('./graphs')
-    plot(model, to_file=model_file, show_shapes=True, show_layer_names=True)
 
 
 
 if __name__ == '__main__':
-    # nvidia:   http://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf
-    # comma.ai: https://github.com/commaai/research/blob/master/train_steering_model.py
+    data_udacity     = 'data/udacity/'
+    data_training    = 'data/training/'
 
-    # Input Image (RGB) -> YUV Planes
-    # Steering Angle Command Output: 1/r
-    # Steering Angles: Steer Left=Left Turns(Negative), Drive Straight=Center(0.0), Steer Right=Right Turn(Positive)
+    # ALT: Augment for a balanced training set
+    # load augmented training data (via execution of data_augment.py)
+    X_train, y_train, X_val, y_val = nu.load_partitions(data_training)
+    train, validation = ((X_train, y_train), (X_val, y_val))
 
-    # drive.py: RGB format is sent
-    # model.py: cv2.imread: reads in BGR format; mpimg.imread: format <TBD>
+    model_nvidia  = create_model_nvidia(learning_rate=1e-3)
+    #model_commaai = create_model_commaai(learning_rate=1e-3)
+    #model_custom  = create_model_custom(learning_rate=1e-3)
 
-    # Input Image Format: Resize/Rescale, e.g. downscale by factor of 2
-    # image resize: shape/k
-    pass
+    # Train the model w/generators
+    params = {'num_epochs': 10, 'batch_size': 32}
+    tr.train(model_nvidia, train, validation, model_name='model_training_tracks_aug_nvidia', **params)
+
+    #tr.save_architecture(model)
+    #model_custom.summary()
