@@ -11,12 +11,14 @@
 
 ### Image Examples
 ![Variety of Center Camera Angles](./images/camera_snapshots_centered.png)
+
 ![Track1 Normal Centered Simulator Collection](./images/camera_angles_centered.png)
 ![Track1 Curved Simulator Collection](./images/camera_angles_curved.png)
 ![Track1 Recovery Simulator Collection](./images/camera_angles_recovery.png)
 
 *Steering distribution plots are captured before additional data augmentation*
 ![Steering Distributions](./images/steering_distributions.png)
+
 ![Augmented Centered Images](./images/augmentation.png)
 
 ### Deliverable Files
@@ -65,13 +67,14 @@ Number Train Observations: 23805, Validation Observations: 5952
 
 #### Training Methodology
 - Split Train and Validation dataset (70/30), rather than use Keras due to lack of shuffle in partition
-- Training data are names of files, not the images themselves fit into a batch generator
-  Instead the names of the files were fit via batch size, and loaded into memory during the batch generator
+- Training data are names of files, not the images themselves fit into a batch generator.  Instead the names of the files were fit via batch size, and loaded into memory during the batch generator
 - Recovery: For the model to learn and adapt, data was gathered in different positions, along w/centered data.
-  In addition, data augmentation, and *Left, right* cameras were used w/adjusted steering angle toward center.
-  For curves and recovery data, a more severe steering angle adjustment was made (only *left, right* cameras).
-  Curve and Recovery data was added only to the Training dataset, not the validation dataset.
-  In the real world, a recover path from each camera would be performed, in this case we are simulating it.
+  ```
+  In addition, data augmentation, and Left, right cameras were used w/adjusted steering angle toward center
+  For curves and recovery data, a more severe steering angle adjustment was made (only Left, Right cameras)
+  Curve and Recovery data was added only to the Training dataset, not the validation dataset
+  In the real world, a recover path from each camera would be performed, in this case we are simulating it
+  ```
 - Only Training data will be augmented, not validation data
 - There were some images that snuck in as 4 dimensions, rather than 3 Dimensions (RGB), these were dropped in the batch generator
 
@@ -79,10 +82,12 @@ Number Train Observations: 23805, Validation Observations: 5952
 Augmented Training Data to recover from a poor position or orientation:
 - Augmented Images format: denoted by the according format: `{camera_direction}_{timetamp}_{augment_type}_augmentation.jpg`
 - Using Left, Right Camera Images, with an steering offset +- random uniform between [0.10,0.30], for recovery [0.35,0.50].
+  ```
   For the left image: add a positive adjustment; For right image: add negative adjustment to move towards center
   Multiple Cameras (L,R,C) for recovery from being off-center, mapping recovering paths from each
   If using Left  Camera Image: associate w/softer left turn
   If using Right Camera Image: associate w/harder left turn
+  ```
 - Flip Images along *vertical* axis, inverting given steering angle. to neutralize tendencies of driver.
 - Small artificial rotations of the image random uniformly distributed between [2.5,10] degrees
 - Translation: shift of pixels random uniformly in both lateral and vertical positions (simulate elevation)
@@ -100,8 +105,8 @@ Augmented Training Data to recover from a poor position or orientation:
 
 #### Methodology
 - The Training/Validation Accuracy/Loss was not a good metric to assess the model
-  Rather a serialized model needed to be evaluated on the simulator in autonomous mode.
-  Given enough data, it is possible, this metric could have been more heavily used.
+    - Rather a serialized model needed to be evaluated on the simulator in autonomous mode.
+    - Given enough data, it is possible, this metric could have been more heavily used.
 - Therefore no *learning curve* analysis was used, as in addition few epochs were used (as no improvement occurred)
   ```
   Overfit:  low MSE on train,  high MSE on validation (more data, augment, dropout, pooling, fewer layers)
@@ -119,10 +124,12 @@ Augmented Training Data to recover from a poor position or orientation:
   Similar to Nvidia:   Completed Track 1, 2
   Custom model derived from Nvidia:  Completed Track 1,2
   ```
+  ```
   The custom model added in Batch Normalization + Dropout in the Dense Layers
   Comparison between different activation functions: ReLU/ELU/Leaky ReLU
-  Applying ELU on just an Nvidia model did not lend itself to good results: did not complete track 1
-  In the end ReLU was used on the custom model 
+  Applying ELU on just an Nvidia model alone did not lend itself to good results: did not complete track 1
+  In the end ReLU was used on the custom model  
+  ```
 
 #### Model Pre-processing
 The following are done within the model architecture to take advantage of the GPU for processing
@@ -163,5 +170,5 @@ The following are done within the model architecture to take advantage of the GP
 (http://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf)
 - [Comma.ai Model Reference]
 (https://github.com/commaai/research/blob/master/train_steering_model.py)
-- Keras Augmentation (although I used OpenCV for reuse purposes outside of Keras)
-https://blog.keras.io/building-powerful-image-classification-models-using-very-little-data.html
+- [Keras Augmentation Reference]
+(https://blog.keras.io/building-powerful-image-classification-models-using-very-little-data.html)
