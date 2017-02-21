@@ -53,7 +53,7 @@ def save_partitions(data_path, X_train, y_train, X_validation, y_validation):
 
 def partition_data(df_samples):
     X, y = df_samples['image'], df_samples['steering']
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.3)
     return X_train, y_train, X_val, y_val
 
 def partition_samples(data_path, df_samples):
@@ -64,7 +64,7 @@ def partition_samples(data_path, df_samples):
     if not os.path.exists(data_src): os.makedirs(data_src)
 
     X, y = df_samples['image'], df_samples['steering']
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.3)
     with open(os.path.join(data_src, 'train.p'), 'wb') as f:
         train_dict = {'image_files':X_train, 'angles':y_train}
         pickle.dump(train_dict, f, protocol=pickle.HIGHEST_PROTOCOL)

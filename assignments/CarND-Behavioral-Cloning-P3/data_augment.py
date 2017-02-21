@@ -4,6 +4,7 @@ import cv2
 import os
 
 from functools import reduce
+from sklearn.utils import shuffle
 
 import data_utils as du
 import nn_utils as nu
@@ -21,10 +22,10 @@ def aug_sample(fname, steer):
     data_samples.append( aug_image(fname, steer, cvt.gaussian_blur_image) )
     params = {'axis': 'vertical', 'adjust_target': True}
     data_samples.append( aug_image(fname, steer, cvt.flip_image, **params) )
-    # params = {'min': 2.5, 'max': 10, 'adjust_target': True}
-    # data_samples.append( aug_image(fname, steer, cvt.rotate_image, **params) )
-    # params = {'width_range': 0.10, 'height_range': 0.05, 'adjust_target': True}
-    # data_samples.append( aug_image(fname, steer, cvt.shift_image, **params) )
+    params = {'min': 2.5, 'max': 10, 'adjust_target': True}
+    data_samples.append( aug_image(fname, steer, cvt.rotate_image, **params) )
+    params = {'width_range': 0.10, 'height_range': 0.05, 'adjust_target': True}
+    data_samples.append( aug_image(fname, steer, cvt.shift_image, **params) )
     params = {'min': 0.25, 'max': 0.6}
     data_samples.append( aug_image(fname, steer, cvt.gamma_corr_image, **params) )
     params = {'min': 0.25,'max': 0.5}
@@ -42,23 +43,23 @@ def augment_training(X_train, y_train):
 
 def get_track_data(training_path, sim_path, track):
     df_collection = pd.DataFrame()
-    track_path = os.path.join(data_training, track)
+    track_path = os.path.join(training_path, track)
     for collection_path in sim_path:
         data_collection_path = os.path.join(track_path, collection_path)
         df_sim = du.reformat_csv(data_collection_path,  header=False)
-        df_collection = df_collection.append(df_sim)
+        df_collection = df_sim#df_collection.append(df_sim)
         print('Track: {}, Collections: {}, Num Collection Samples: {}'.format(track, collection_path, len(df_sim)) )
     print('Track: {}, Collections: {}, Num Collections Samples: {}'.format(track, sim_path, len(df_collection)) )
     return df_collection
 
-def create_track_samples(training_path, sim_path):
+def create_track_samples(training_path, sim_path, include_center, scale=(0.30,0.10)):
     df_sim_track1    = get_track_data(data_training, sim_path, 'track1')
-    #df_sim_track2    = get_track_data(data_training, sim_path, 'track2')
-    df_sim_comb      = df_sim_track1#pd.concat([df_sim_track1, df_sim_track2], axis=0)
+    df_sim_track2    = get_track_data(data_training, sim_path, 'track2')
+    df_sim_comb      = pd.concat([df_sim_track1, df_sim_track2], axis=0)
     df_drive_sim     = df_sim_comb.sample(frac=1.0).reset_index(drop=True)
     # use left, right angles of camera and shift accordingly: steering already in float format
-    df_sim_shift     = du.lateral_shift(df_drive_sim)
-    df_drive_samples = du.combine_dataset(df_sim_shift)
+    df_sim_shift     = du.lateral_shift(df_drive_sim, scale)
+    df_drive_samples = du.combine_dataset(df_sim_shift, include_center)
     print( "Num Simulator Samples w/L,C,R: {}".format(len(df_drive_samples)) )
     return df_drive_samples
 
@@ -74,33 +75,29 @@ if __name__ == '__main__':
         df_drive_udacity = du.reformat_csv(data_udacity, header=True)
         # use left, right angles of camera and shift accordingly: steering already in float format
         df_udacity_shift = du.lateral_shift(df_drive_udacity)
-        df_udacity_samples = du.combine_dataset(df_udacity_shift)
-        print("Udacity Num Overall Samples: {}".format(len(df_drive_samples)) )
+        df_udacity_samples = du.combine_dataset(df_udacity_shift, include_center=True)
+        print("Udacity Num Overall Samples: {}".format(len(df_udacity_samples)) )
         X_train, y_train, X_val, y_val = nu.partition_data(df_udacity_samples)
         print("Udacity Number Train Obs: {}, Validation Obs: {}".format(len(X_train), len(X_val)) )
-        # perform augmentation on training set
         X_train, y_train = augment_training(X_train, y_train)
         print("Udacity w/Augmented Train Obs: {}, Validation Obs: {}".format(len(X_train), len(X_val)))
 
     else:
-        # Get Track 1+2 Centered Augmented Data w/L,R camera shifts
+        # Get Track 1+2 Data based on centered simulation driving (use L,C,R cameras)
         data_training    = 'data/training/'
         data_path        = data_training
-        df_base_samples  = create_track_samples(data_training, ['training.centered/'])
+        df_base_samples  = create_track_samples(data_training, ['training.centered/'], include_center=True)
         X_train, y_train, X_val, y_val = nu.partition_data(df_base_samples)
-
         print( "Number Train Obs: {}, Validation Obs: {}".format(len(X_train), len(X_val)) )
         X_train, y_train = augment_training(X_train, y_train)
         print("W/Augmented Train Obs: {}, Validation Obs: {}".format(len(X_train), len(X_val)))
-        # add in recovery and curves wo/augmentation to both training and validation, still using L,R cameras
-        recover_path = ['training.curves/']#['training.curves/', 'training.recover/']
-        df_recover_samples  = create_track_samples(data_training, recover_path)
-        X_train_rec, y_train_rec, X_val_rec, y_val_rec = nu.partition_data(df_recover_samples)
-        # combine both for a final training/validation set
-        X_train = X_train.append(X_train_rec)
-        y_train = y_train.append(y_train_rec)
-        X_val   = X_val.append(X_val_rec)
-        y_val   = y_val.append(y_val_rec)
+
+        # add in recovery/curves wo/augmentation to training data only using L,R cameras
+        recover_path = ['training.curves/', 'training.recover/']
+        df_recover_samples  = create_track_samples(data_training, recover_path, include_center=False, scale=(0.50,0.35))
+        X_train = X_train.append(df_recover_samples['image'])
+        y_train = y_train.append(df_recover_samples['steering'])
+        X_train, y_train = shuffle(X_train, y_train)
         print("Number Train Obs: {}, Validation Obs: {}".format( (len(X_train),len(y_train)), (len(X_val),len(y_val)) ))
 
 

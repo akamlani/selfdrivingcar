@@ -4,14 +4,29 @@ from keras.optimizers import SGD, Adam, RMSprop
 from keras.models import Sequential
 
 import keras.backend as K
-from keras.layers import Flatten, Dense, Dropout, BatchNormalization, Activation, ELU, Lambda, Input
+from keras.layers import Flatten, Dense, Dropout, BatchNormalization, Activation, ELU, Lambda
 from keras.layers.convolutional import Convolution2D, MaxPooling2D, Cropping2D
 from keras.regularizers import l2
+
+from keras.layers import Input
+from keras.layers import AveragePooling2D
+from keras.models import Model
+
+from keras.applications.vgg16 import VGG16                  # h,w,ch = (224,224,3)
+from keras.applications.vgg19 import VGG19                  # h,w,ch = (224,224,3)
+from keras.applications.resnet50 import ResNet50            # h,w,ch = (224,224,3)
+from keras.applications.inception_v3 import InceptionV3     # h,w,ch = (299,299,3)
+from keras.applications.xception import Xception            # h,w,ch = (299,299,3)
 
 import train as tr
 import nn_utils as nu
 
+### configurable implementation utilities
 def attr_layer(model, **kwargs):
+    """
+    create configurable attributes of a block layer
+    Some attributes cannot be configured at time of instantiation
+    """
     if 'batchnorm' in kwargs and kwargs['batchnorm']:
         model.add(BatchNormalization())
     if 'activation' in kwargs and kwargs['activation']:
@@ -23,91 +38,132 @@ def attr_layer(model, **kwargs):
     return model
 
 def create_dense(model, layer_name, num_neurons, **kwargs):
+    """
+    create a configurable dense layer via name
+    """
     model.add(Dense(output_dim=num_neurons, activation=None, init='uniform', name=layer_name))
     return attr_layer(model, **kwargs)
 
 def create_conv(model, out_depth, layer_name, **kwargs):
-
-
     """
-    glorot_normal: Gaussian initialization scaled by fan_in + fan_out (Glorot 2010)
-    glorot_uniform
+    crate a configurable convolutional layer via name
     """
-
     model.add(Convolution2D(out_depth, *kwargs['kernel'],
                             init ='glorot_uniform', name=layer_name,
                             subsample=kwargs['stride'], border_mode='same') )
     return attr_layer(model, **kwargs)
 
-
 def create_baselayer(image_dim, crop_dim):
+    """
+    create a base layer implemntation before model specifics
+    implements Normalization and Cropping taking advantage of GPU
+    allows for any image size to be fed into model
+    """
     # camera format(dim_ordering=tf): input_shape=(samples, rows(height=y), cols(width=x), channels)
-    # apply normalization, cropping within model: take advantage of gpu
     model  = Sequential()
     # Normalize batch at model for faster computation [normalize between: [-0.5,0.5]]
     # normalize/unnormalize steering angles: already normalized in dataset
-    model.add(Lambda(lambda x: ((x/255.0) - 0.5), input_shape=image_dim, output_shape=image_dim))
+    model.add(Lambda(lambda x: x/255.0 - 0.5, input_shape=image_dim, output_shape=image_dim))
     # crop region to focus on primary focus
     model.add(Cropping2D(cropping=crop_dim))
-    # reize causes memory here, so handle it in the batch generator
+    # TBD: reize causes memory here, so handle it in the batch generator
     return model
 
-def create_model_tl(learning_rate=1e-4, loss_metric='mse', **kwargs):
-    """
-    from keras.applications import vgg16
-    from keras import backend as K
+### Transfer Learning Models: Not currently used
+def prediction_layer(layer_in, nb_classes, classification):
+    act = 'softmax' if classification else None
+    pred = Dense(nb_classes, activation=act, name='predictions')(layer_in)
+    return pred
 
-    # get the symbolic outputs of each "key" layer (we gave them unique names).
-    outputs_dict = dict([(layer.name, layer.output) for layer in model.layers])
+def train_xception(inp, nb_classes, **kwargs):
+    x = GlobalAveragePooling2D(inp)
+    return prediction_layer(x, nb_classes)
 
-    model = vgg16.VGG16(input_tensor=input_tensor, weights='imagenet', include_top=False)
-    img = vgg16.preprocess_input(img)
+def train_inceptionv3(inp, nb_classes, **kwargs):
+    # Good for real-time performance
+    #x = AveragePooling2D((8, 8), strides=(8, 8), name='avg_pool')(inp)
+    #x = Flatten(name='flatten')(x)
+    x = GlobalAveragePooling2D()(inp)
+    x = Dense(1024, activation='relu')(x)
+    return prediction_layer(x, nb_classes)
 
-    # save bottleneck features and reuse
-    bottleneck_features_train = model.predict_generator(generator, 2000)
-    np.save(open('bottleneck_features_train.npy', 'w'), bottleneck_features_train)
-    bottleneck_features_validation = model.predict_generator(generator, 800)
-    np.save(open('bottleneck_features_validation.npy', 'w'), bottleneck_features_validation)
-    train_data = np.load(open('bottleneck_features_train.npy'))
-    validation_data = np.load(open('bottleneck_features_validation.npy'))
-    """
+def train_resnet50(inp, nb_classes, **kwargs):
+    x = Flatten()(inp)
+    return prediction_layer(x, nb_classes)
 
+def train_vgg(inp, nb_classes, **kwargs):
+    base_layer = Flatten()(inp)
+    top_fc1 = Dense(4096, activation='relu', name='fc1')(base_layer)
+    top_fc1 = Dropout(0.25)(top_fc1)
+    top_fc2 = Dense(4096, activation='relu', name='fc2')(base_layer)
+    top_fc2 = Dropout(0.25)(top_fc2)
+    return prediction_layer(top_fc2, nb_classes, **kwargs)
+
+def create_model_architecture(model_name, layer_name):
+    models = {'vgg16': (VGG16, train_vgg), 'vgg19': (VGG16, train_vgg),
+              'resnet50': (ResNet50, train_resnet50),
+              'xception': (Xception, train_xception),
+              'inception_v3': (InceptionV3, train_inceptionv3) }
+    #(224,224,3) if tl_model.name in ['resnet50', 'vgg16', 'vgg19']
+    #(299,299,3) if tl_model.name in ['xception', 'inception_v3']
+    h,w,ch = [(299,299,3) if tl_model.name in ['xception', 'inception_v3'] else (224,244,3)][0]
+    input_tensor = Input(shape=(h,w,ch))
+    # instantiate transfer learning model and extract particular layers
+    params = {'weights': 'imagenet', 'include_top': False, 'input_tensor': input_tensor}
+    model_fn, fn = models[model_name]
+    tl_model   = model_fn(**params)
+    base_model = Model(input=tl_model.input, output=tl_model.get_layer(layer_name).output)
+    inp = base_model.output
+    # classification of appropriate model
+    pred = fn(inp, nb_classes=1)
+    # mark which layers are trainable and rebuild model
+    for layer in base_model.layers: layer.trainable = False
+    # setup input and output layers for new model
+    model = Model( input=tl_model.input, output=pred, name="_".join(['custom', model_name]) )
+
+    # for idx, layer in enumerate(tl_model.layers): print(idx, layer.name, layer.output_shape)
+    # attrs = dict([(idx, layer.name,  layer.output_shape, layer.output) for layer in enumerate(tl_model.layers)])
+    # top_model.load_weights(model_weights_name, by_name=True)
+    # model.add(top_model)
+    return model
+
+
+#### Core Auto Models
 def create_model_custom(learning_rate=1e-4, loss_metric='mse', **kwargs):
     """
     Create a custom model based on nvidia model
     """
     activation = 'elu'
+    # apply normalization, cropping layers
     image_dim, crop_dim = (160,320,3), ((75,25),(10,10))
     model = create_baselayer(image_dim, crop_dim)
 
-    # Conv1: Kernel: 3,3; Stride=1; Input depth: 3,  Output Depth: 24
-    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True}
+    # Conv1: Kernel: 5,5; Stride=2; Input depth: 3,  Output Depth: 24
+    params = {'kernel':(5,5), 'stride':(2,2), 'activation': activation, 'batchnorm': True}
     model = create_conv(model, out_depth=24, layer_name='conv1', **params)
-    # Conv2: Kernel: 3,3; Stride=1; Input depth: 24,  Output Depth: 36
-    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True, 'maxpool': True}
+    # Conv2: Kernel: 5,5; Stride=2; Input depth: 24, Output Depth: 36
     model = create_conv(model, out_depth=36, layer_name='conv2', **params)
-    # Conv3: Kernel: 3,3; Stride=1; Input depth: 36,  Output Depth: 48
-    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True}
+    # Conv3: Kernel: 5,5; Stride=2; Input depth: 36, Output Depth: 48
     model = create_conv(model, out_depth=48, layer_name='conv3', **params)
-    # Conv4: Kernel: 3,3; Stride=1; Input depth: 48,  Output Depth: 72
-    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True, 'maxpool': True}
-    model = create_conv(model, out_depth=72, layer_name='conv4', **params)
-    # Conv5: Kernel: 3,3; Stride=1; Input depth: 48,  Output Depth: 72
+    # Conv4: Kernel: 3,3; Stride=1; Input depth: 48, Output Depth: 64
     params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation, 'batchnorm': True}
-    model = create_conv(model, out_depth=96, layer_name='conv5', **params)
+    model = create_conv(model, out_depth=64, layer_name='conv4', **params)
+    # Conv5: Kernel: 3,3; Stride=1; Input depth: 64, Output Depth: 64
+    model = create_conv(model, out_depth=64, layer_name='conv5', **params)
 
     # Flatten number of ndurons should be 1164 per NVIDIA model
     model.add(Flatten())
     # dropout probability: tensorflow: percent=proba_keep, keras=p1-proba_keep
-    params = {'activation': activation, 'batchnorm': True}#, 'dropout_proba': 0.25}
+    params = {'activation': activation, 'batchnorm': True, 'dropout_proba': 0.2}
     model = create_dense(model, layer_name='dense_1', num_neurons=100, **params)
     model = create_dense(model, layer_name='dense_2', num_neurons=50,  **params)
     model = create_dense(model, layer_name='dense_3', num_neurons=10,  **params)
     # output layer: number of neurons=1; no softmax layer is used in last FC layer
-    model.add(Dense(1, name='dense_output'))
-    # compile the model
+    model.add(Dense(1, name='dense_ouput'))
+
+    # compile model: commai used defaults
     opt = Adam(lr=learning_rate)
-    model.compile(optimizer=opt, loss=loss_metric, metrics=['accuracy'])
+    model.compile(optimizer="adam", loss=loss_metric, metrics=['accuracy'])
     return model
 
 
@@ -116,20 +172,22 @@ def create_model_nvidia(learning_rate=1e-4, loss_metric='mse', **kwargs):
     nvidia paper:
     http://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf
     http://www.picalike.com/blog/2015/11/28/relu-was-yesterday-tomorrow-comes-elu/
+    nvidia model normalization: x/255 - .5; Activation: ReLU; Input Shape: (66,200,3)
     """
+    activation = 'relu'
     # apply normalization, cropping layers
     image_dim, crop_dim = (160,320,3), ((75,25),(10,10))
     model = create_baselayer(image_dim, crop_dim)
 
     # Conv1: Kernel: 5,5; Stride=2; Input depth: 3,  Output Depth: 24
-    params = {'kernel':(5,5), 'stride':(2,2), 'activation': 'elu'}
+    params = {'kernel':(5,5), 'stride':(2,2), 'activation': activation}
     model = create_conv(model, out_depth=24, layer_name='conv1', **params)
     # Conv2: Kernel: 5,5; Stride=2; Input depth: 24, Output Depth: 36
     model = create_conv(model, out_depth=36, layer_name='conv2', **params)
     # Conv3: Kernel: 5,5; Stride=2; Input depth: 36, Output Depth: 48
     model = create_conv(model, out_depth=48, layer_name='conv3', **params)
     # Conv4: Kernel: 3,3; Stride=1; Input depth: 48, Output Depth: 64
-    params = {'kernel':(3,3), 'stride':(1,1), 'activation': 'elu'}
+    params = {'kernel':(3,3), 'stride':(1,1), 'activation': activation}
     model = create_conv(model, out_depth=64, layer_name='conv4', **params)
     # Conv5: Kernel: 3,3; Stride=1; Input depth: 64, Output Depth: 64
     model = create_conv(model, out_depth=64, layer_name='conv5', **params)
@@ -137,7 +195,7 @@ def create_model_nvidia(learning_rate=1e-4, loss_metric='mse', **kwargs):
     # Flatten number of ndurons should be 1164 per NVIDIA model
     model.add(Flatten())
     # dropout probability: tensorflow: percent=proba_keep, keras=p1-proba_keep
-    params = {'activation': 'elu'}
+    params = {'activation': activation}
     model = create_dense(model, layer_name='dense_1', num_neurons=100, **params)
     model = create_dense(model, layer_name='dense_2', num_neurons=50,  **params)
     model = create_dense(model, layer_name='dense_3', num_neurons=10,  **params)
@@ -154,6 +212,7 @@ def create_model_commaai(learning_rate=1e-4, loss_metric='mse', **kwargs):
     """
     Comma.ai paper: https://arxiv.org/pdf/1608.01230.pdf
     Comma.ai code:  https://github.com/commaai/research/blob/master/train_steering_model.py
+    Comma.ai model normalization: x/127.5 -1.; Activation: ELU, Input Shape: (66,200,3)
     """
     image_dim, crop_dim = (160,320,3), ((75,25),(10,10))
     model = create_baselayer(image_dim, crop_dim)
@@ -188,13 +247,14 @@ if __name__ == '__main__':
     X_train, y_train, X_val, y_val = nu.load_partitions(data_training)
     train, validation = ((X_train, y_train), (X_val, y_val))
 
-    model_nvidia  = create_model_nvidia(learning_rate=1e-3)
+    #model_nvidia  = create_model_nvidia(learning_rate=1e-3)
     #model_commaai = create_model_commaai(learning_rate=1e-3)
-    #model_custom  = create_model_custom(learning_rate=1e-3)
+    model_custom  = create_model_custom(learning_rate=1e-3)
 
     # Train the model w/generators
-    params = {'num_epochs': 10, 'batch_size': 32}
-    tr.train(model_nvidia, train, validation, model_name='model_training_tracks_aug_nvidia', **params)
+    # Small batch sizes, e.g. 32 have trouble
+    params = {'num_epochs': 10, 'batch_size': 64}
+    tr.train(model_custom, train, validation, model_name='model_custom', **params)
 
-    #tr.save_architecture(model)
+    tr.save_architecture(model_custom)
     #model_custom.summary()

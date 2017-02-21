@@ -17,16 +17,21 @@ from keras.utils.visualize_util import plot
 
 
 def get_model_callbacks(weights_name='model.h5'):
+    dirname = './ckpts/train/'
+    if not os.path.exists(dirname): os.makedirs(dirname)
+
     # Save the best model as and when created
     # period=number of epochs between checkpoints, monitor=['val_loss', 'val_acc']
-    checkpoint = cb.ModelCheckpoint(weights_name,
+    filename = "_".join([weights_name, 'checkpoint-{epoch:02d}-{val_loss:.2f}.hdf5'])
+    filename = os.path.join(dirname, filename)
+    checkpoint = cb.ModelCheckpoint(filepath=filename,
                                     monitor='val_loss', mode='auto',
                                     save_best_only=True, save_weights_only=False, verbose=1)
     # Terminate condition if model does not improve
     # patience = number of epochs w/no imrovement after which training will be stopped
     # min_delta = minimum change to qualify as improvement
     early_stopping = cb.EarlyStopping(monitor='val_loss',
-                                      min_delta=0, patience=10,
+                                      min_delta=0, patience=5,
                                       mode='auto', verbose=1)
     # Visualizations
     # histogram_freq = frequency in epochs at which to compute activation histogram
@@ -73,7 +78,7 @@ def train(model, train, validation, model_name, **kwargs):
                                 samples_per_epoch=len(train[0]),
                                 nb_val_samples=len(validation[0]),
                                 nb_epoch=kwargs['num_epochs'],
-                                callbacks=get_model_callbacks(),
+                                callbacks=get_model_callbacks(model_name),
                                 verbose=1
     )
     history = hist.history
@@ -95,7 +100,7 @@ def save_model(model, history, model_name='model'):
     with open(model_json_name, "w") as f: f.write(model_json)
     print("Model Saved: {}, {}".format(model_name, model_json_name))
     # Save Training history
-    with open('training_history.p', 'wb') as f:
+    with open('ckpts/training_history.p', 'wb') as f:
         pickle.dump(history, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     # model.save_weights(model_name)
