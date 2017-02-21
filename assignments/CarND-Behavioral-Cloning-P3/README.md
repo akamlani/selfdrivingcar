@@ -8,6 +8,7 @@
 - Prediction Output: Regression via Vehicle Steering Angle from center camera
 - Training Data: Collect via Simulator (Tracks 1 + Track 2), compare w/Udacity data as baseline
 - Evaluation: Test model successfully drives around track one without driving off the road
+- Video Output: [Behavioral Cloning Autonomous Mode](https://youtu.be/FU2FS6RXJL8)
 
 ### Image Examples
 ![Variety of Center Camera Angles](./images/camera_snapshots_centered.png)
@@ -47,7 +48,7 @@ python data_augment.py
 # create and train the model
 python model.py
 # execute model within context of Udacity simulator for 'autonomous mode'
-python drive.py model.h5
+python drive.py ckpts/model.h5
 ```
 
 ### Training Data
@@ -67,11 +68,14 @@ Number Train Observations: 23805, Validation Observations: 5952
 
 #### Training Methodology
 - Split Train and Validation dataset (70/30), rather than use Keras due to lack of shuffle in partition
-- Training data are names of files, not the images themselves fit into a batch generator.  Instead the names of the files were fit via batch size, and loaded into memory during the batch generator
+- Data Partitions are randomly shuffled before batch generation
+- Training data are names of files, not the images themselves fit into a batch generator
+- Instead the names of the files were fit via batch size, and loaded into memory during the batch generator
 - Recovery: For the model to learn and adapt, data was gathered in different positions, along w/centered data.
+
   ```
-  In addition, data augmentation, and Left, right cameras were used w/adjusted steering angle toward center
-  For curves and recovery data, a more severe steering angle adjustment was made (only Left, Right cameras)
+  Data augmentation, and Left, Right cameras were used w/adjusted steering angle toward center
+  For curves/recovery data, a more severe steering angle adjustment was made (only Left, Right cameras)
   Curve and Recovery data was added only to the Training dataset, not the validation dataset
   In the real world, a recover path from each camera would be performed, in this case we are simulating it
   ```
@@ -82,8 +86,9 @@ Number Train Observations: 23805, Validation Observations: 5952
 Augmented Training Data to recover from a poor position or orientation:
 - Augmented Images format: denoted by the according format: `{camera_direction}_{timetamp}_{augment_type}_augmentation.jpg`
 - Using Left, Right Camera Images, with an steering offset +- random uniform between [0.10,0.30], for recovery [0.35,0.50].
+
   ```
-  For the left image: add a positive adjustment; For right image: add negative adjustment to move towards center
+  For left image: add positive adjustment; right image: add negative adjustment to move towards center
   Multiple Cameras (L,R,C) for recovery from being off-center, mapping recovering paths from each
   If using Left  Camera Image: associate w/softer left turn
   If using Right Camera Image: associate w/harder left turn
@@ -108,26 +113,30 @@ Augmented Training Data to recover from a poor position or orientation:
     - Rather a serialized model needed to be evaluated on the simulator in autonomous mode.
     - Given enough data, it is possible, this metric could have been more heavily used.
 - Therefore no *learning curve* analysis was used, as in addition few epochs were used (as no improvement occurred)
+
   ```
   Overfit:  low MSE on train,  high MSE on validation (more data, augment, dropout, pooling, fewer layers)
   Underfit: high MSE on train, high MSE on validation (more epochs, add more convolutions)
   ```
 - Start with a baseline based on Udacity data (+ Training Augmentation):
+
   ```
-  Baseline Udacity Augmented data Results (Batch Size=64, Learning Rate=1e-3):
+  Baseline Udacity Augmented data Results (Batch Size=64, Learning Rate=1e-3)
   Similar to Comma.ai: Did not complete Track 1
   Similar to Nvidia:   Completed Track 1
   Custom model derived from Nvidia:  Completed Track 1
   ```
 - Custom data via Simulator (Track1 + Track2 + Curves + Recovery + Training Augmentation):
+
   ```
-  Similar to Nvidia:   Completed Track 1, 2
-  Custom model derived from Nvidia:  Completed Track 1,2
+  Similar to Nvidia:   Completed Track 1, 2 (track 2 for low graphics quality)
+  Custom model derived from Nvidia:  Completed Track 1,2 (track 2 for low graphics quality)
   ```
+
   ```
   The custom model added in Batch Normalization + Dropout in the Dense Layers
   Comparison between different activation functions: ReLU/ELU/Leaky ReLU
-  Applying ELU on just an Nvidia model alone did not lend itself to good results: did not complete track 1
+  Applying ELU Nvidia model alone did not lend itself to good results: did not complete track 1
   In the end ReLU was used on the custom model  
   ```
 
@@ -161,7 +170,7 @@ The following are done within the model architecture to take advantage of the GP
 
 #### Additional Future Actions
 - Generalizing to different datasets
-- Additional Augmentation techniques
+- Additional Augmentation techniques to help with shadows
 - Possibly drop out smaller steering angle variations, as they will not have much effect
 - Transfer Learning Architectures (started implementation): VGG16, VGG19, Resnet50, InceptionV3
 
