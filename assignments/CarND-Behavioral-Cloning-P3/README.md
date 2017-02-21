@@ -8,7 +8,8 @@
 - Prediction Output: Regression via Vehicle Steering Angle from center camera
 - Training Data: Collect via Simulator (Tracks 1 + Track 2), compare w/Udacity data as baseline
 - Evaluation: Test model successfully drives around track one without driving off the road
-- Video Output: [Behavioral Cloning Autonomous Mode](https://youtu.be/FU2FS6RXJL8)
+- Video Output: [Behavioral Cloning Autonomous Mode](https://youtu.be/WHDlAC9yUdU)
+
 
 ### Image Examples
 ![Variety of Center Camera Angles](./images/camera_snapshots_centered.png)
