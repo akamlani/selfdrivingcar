@@ -136,7 +136,7 @@ The vehicle offset is calculated from the center of the left and right lane in m
 
 Reference: TrackerCurvature class (file: tracker.py) for implementation of curvature
 
-    ```python
+    ```
     # from function pipeline_frame() in pipeline.py
     # annotate_frame calculates the curvature, vehicle center offset and annotates on frame
     left_fitx, right_fitx = curvature.fit_lane_boundaries(window_centroids)
