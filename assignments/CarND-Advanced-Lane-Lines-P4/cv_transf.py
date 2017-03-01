@@ -48,7 +48,7 @@ def mag_sobel_thresh(img, kernel_size, thresh=(0,255)):
 
 ### Utility Masking
 def region_of_interest(img, vertices):
-    # assumes single channel 
+    # assumes single channel
     mask    = np.zeros_like(img)
     ignore_mask_color = 255
     cv2.fillPoly(mask, vertices, ignore_mask_color)
@@ -68,7 +68,7 @@ def channel_threshold(channel, thresh):
     # S Channel: thresh=(90,255);  S=hls[:,:,2] ***
     thresh_min, thresh_max = thresh
     binary_img = np.zeros_like(channel)
-    binary_img[(channel > thresh_min) & (channel <= thresh_max)] = 1
+    binary_img[(channel >= thresh_min) & (channel <= thresh_max)] = 1
     return binary_img
 
 ### Perspective Transforms
@@ -83,4 +83,5 @@ def perspective_transf(img, src, dst, **kwargs):
     M = cv2.getPerspectiveTransform(src.astype(np.float32), dst.astype(np.float32))
     Minv = cv2.getPerspectiveTransform(dst.astype(np.float32), src.astype(np.float32))
     warped = cv2.warpPerspective(img, M, (cols, rows), flags=cv2.INTER_LINEAR)
-    return warped, M, Minv
+    opt = True if 'image_only' in kwargs and kwargs['image_only'] else False
+    return warped if opt else (warped, M, Minv)

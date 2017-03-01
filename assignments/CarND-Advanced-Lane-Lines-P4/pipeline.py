@@ -6,10 +6,11 @@ import os
 import argparse
 
 import cv_transf as cvt
-import tracker as tr
+import lines as lf
 
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+from matplotlib.lines import Line2D
 from moviepy.editor import VideoFileClip
 
 ### Operator Functions
@@ -19,26 +20,29 @@ def combine_color_threshold(img, **kwargs):
     """
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
     hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
-    S,V = (hls[:,:,2], hsv[:,:,2])
-    S_binary = cvt.channel_threshold(S, thresh=(120,255))
-    V_binary = cvt.channel_threshold(V, thresh=(150,255))
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+    luv = cv2.cvtColor(img, cv2.COLOR_RGB2LUV)
+    S,V,L,B = (hls[:,:,2], hsv[:,:,2], luv[:,:,0], lab[:,:,2])
+    L_binary = cvt.channel_threshold(L, thresh=(125,255))  # detect white  lines
+    B_binary = cvt.channel_threshold(B, thresh=(145,200))  # detect yellow lines
+    S_binary = cvt.channel_threshold(S, thresh=(110,255))  # 100
+    V_binary = cvt.channel_threshold(V, thresh=(130,255))   # 50
     # for pixels where there is an overlap, set to 1
     color_comb_binary = np.zeros_like(S)
-    color_comb_binary[(S_binary == 1) & (V_binary == 1)] = 1
+    # color_comb_binary[( (S_binary == 1) & (V_binary == 1) ) ] = 1
+    color_comb_binary[( (S_binary == 1) & (V_binary == 1) ) |
+                      ( (L_binary == 1) & (B_binary == 1) ) ] = 1
     return color_comb_binary
 
-def combine_gradients(img, **kwargs):
+def fetch_gradients(img, **kwargs):
     """
     Combine different methods of gradients: orientation(x,y), magnitude, direction
     """
     grad_x   = cvt.abs_sobel_orient_thresh(img, orient='x', thresh=(12,255))
     grad_y   = cvt.abs_sobel_orient_thresh(img, orient='y', thresh=(25,255))
-    grad_mag = cvt.mag_sobel_thresh(img, kernel_size=5, thresh=(25,255))
-    grad_dir = cvt.dir_sobel_thresh(img, kernel_size=15, thresh=(0.7,1.3))
-    grad_comb = np.zeros_like(grad_dir)
-    grad_comb[((grad_x == 1) & (grad_y == 1)) | ((grad_mag == 1) & (grad_dir == 1))] = 1
-    return grad_comb
-
+    grad_mag = cvt.mag_sobel_thresh(img, kernel_size=3,     thresh=(25,255))
+    grad_dir = cvt.dir_sobel_thresh(img, kernel_size=15,    thresh=(0.7,1.3))
+    return grad_x, grad_y, grad_mag, grad_dir
 
 
 ### Pipelines
@@ -108,7 +112,7 @@ def pipeline_frame(img, mtx, dist, fname=None, tracked_dir=None):
     """
     Main function to handle an incoming frame to be processed
     """
-    warped_img = pipeline_frame_base(img, mtx, dist, fname, tracked_dir)
+    undist_img, warped_img, M, Minv = pipeline_frame_base(img, mtx, dist, fname, tracked_dir)
     # Step 5: determine which pixels are lane line pixels based on conv method
     window_centroids = conv_centers.find_window_centroids(warped_img)
     conv_img = conv_centers.draw_centroids(warped_img, window_centroids)
@@ -116,7 +120,7 @@ def pipeline_frame(img, mtx, dist, fname=None, tracked_dir=None):
     # Step 6. annotate radius curvature and offset via window centroids on original img
     left_fitx, right_fitx = curvature.fit_lane_boundaries(window_centroids)
     left_lane, right_lane, inner_lane = curvature.fit_lanes(left_fitx, right_fitx)
-    img_lanes = curvature.view_lanes(img, left_lane, right_lane, inner_lane)
+    img_lanes = curvature.view_lanes(undist_img, Minv, left_lane, right_lane, inner_lane)
     img_annot = curvature.annotate_frame(img_lanes, window_centroids, left_fitx, right_fitx)
     save_file(img_annot, 'curvature', fname, tracked_dir)
     return img_annot
@@ -132,28 +136,36 @@ def pipeline_frame_base(img, mtx, dist, fname=None, tracked_dir=None):
     gc_binary = pipeline_gradient_color(undist_img)
     save_file(gc_binary, 'gc_binary', fname, tracked_dir)
     # Step 3: Region of Interest Mask
-    rows, cols = gc_binary.shape[:2]
-    vertices = np.array([[(150, rows),(150,  350),(cols, 350), (cols, rows) ]], dtype=np.int32)
-    roi_binary = cvt.region_of_interest(gc_binary, vertices)
+    roi_binary = pipeline_roi(gc_binary)
     save_file(roi_binary, 'roi_binary', fname, tracked_dir)
     # Step 4: perspective transform to produce warped image
     src, dst, warped_img, M, Minv = pipeline_warped(roi_binary)
     save_file(warped_img, 'warped_binary', fname, tracked_dir)
-    return warped_img
+    return undist_img, warped_img, M, Minv
 
 def pipeline_gradient_color(img, **kwargs):
     """
     Combine gradient direction andn color channel thresholds
     """
     # retrieve gradient thresholding
-    grad_binary = combine_gradients
+    grad_x, grad_y, grad_mag, grad_dir = fetch_gradients(img)
+    #grad_cond = ((grad_x == 1) & (grad_y == 1))
+    #grad_cond = ( ((grad_x == 1) & (grad_y == 1)) | (grad_mag == 1) )
+    grad_cond = ( ((grad_x == 1) & (grad_y == 1)) | ((grad_mag == 1) & (grad_dir == 1)) )
     # retrieve color thresholding
     c_binary = combine_color_threshold(img)
     p_img    = np.zeros_like(img[:,:, 0])
-    p_img[( (grad_binary == 1) | (c_binary == 1) )] = 255
+    p_img[( (grad_cond) | (c_binary == 1) )] = 255
     return p_img
 
-
+def pipeline_roi(img, **kwargs):
+    """
+    Perform a Region of Interest Mask on particular region
+    """
+    rows, cols = img.shape[:2]
+    vertices = np.array([[(500, 400),(100,rows),(cols,rows),(900, 400)]], dtype=np.int32)
+    roi_binary = cvt.region_of_interest(img, vertices)
+    return roi_binary
 
 def pipeline_warped(img, **kwargs):
     """
@@ -164,7 +176,6 @@ def pipeline_warped(img, **kwargs):
     warped, M, Minv = cvt.perspective_transf(img, src, dst)
     return src, dst, warped, M, Minv
 
-
 def create_perspective_mappings(img):
     """
     create mappings for perspective transform of warped image
@@ -172,30 +183,19 @@ def create_perspective_mappings(img):
     src: defined points of trapezoid
     dst: should be flat rectangle: approximately size of img
     """
-    rows, cols  = img.shape[:2]
-    bot_width   = .7
-    mid_width   = .1
-    height_pct  = .62             #not including full depth
-    bottom_trim = .935            #for front of vehicle
-    offset      = rows *.25
+    bottom_trim = 1.0
+    # src = np.float32([[570, 460],[235, int(720*bottom_trim)], [1145, int(720*bottom_trim)],[735, 460]])
+    # dst = np.float32([[320, 0], [320,  720], [960, 720],[960, 0]])
 
-    src = np.float32([
-            [cols*(.5 - mid_width/2),  rows*height_pct],
-            [cols*(.55 + mid_width/2), rows*height_pct],
-            [cols*(.6 + bot_width/2),  rows*bottom_trim],
-            [cols*(.6 - bot_width/2),  rows*bottom_trim] ])
-    dst = np.float32([
-            [offset, 0],
-            [cols - offset, 0],
-            [cols - offset, rows],
-            [offset, rows] ])
+    src = np.float32([[575, 460],[185, int(720*bottom_trim)], [1200, int(720*bottom_trim)],[740, 460]])
+    dst = np.float32([[320, 0], [320,  720], [960, 720],[960, 0]])
     return src, dst
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Advanced Lane Lines Pipeline')
-    parser.add_argument('-v', '--video', action='store_true', help='video or test image processing')
+    parser.add_argument('-v', '--video', action='store_true', help='video processing')
     args = parser.parse_args()
 
     dirname = 'test_images'
@@ -205,22 +205,23 @@ if __name__ == '__main__':
 
     # define configuration to be used for tracker conv and curvature
     rows, cols = mpimg.imread(fnames[0]).shape[:2]
-    params = {  'window_width':     30,
+    params = {  'window_width':     25,                #25
                 'window_height':    rows/9,            # rows/n_windows(9)
-                'window_margin':    25,
+                'window_margin':    25,                #25
                 'ym_per_pix':       10/rows,           # 10m ~ 720 pixels
-                'xm_per_pix':       4/800,             # 4m  ~ 800 pixels
+                'xm_per_pix':       4/600,             # 4m  ~ 600 pixels
                 'smooth_factor':    15,
                 'img_dim':          (rows,cols) }
-    conv_centers = tr.TrackerConv1D(**params)
-    curvature    = tr.TrackerCurvature(**params)
+    conv_centers = lf.LineConv1D(**params)
+    curvature    = lf.LineCurvature(**params)
 
     if args.video:
         #process videos based on program inputs
-        fname_input    = "videos/project_video.mp4"
-        fname_output   = "videos/project_video_tracked.mp4"
+        fname_input    = 'videos/project_video.mp4'
+        fname, ext     = fname_input.split('.')
+        fname_output   = "_".join([fname, 'tracked']) + "".join(['.', ext])
+        print('Video Input: {}, Output: {}'.format(fname_input, fname_output))
         pipeline_playvideo(fname_input, fname_output)
-
     else:
         # Process against a set of test images
         pipeline_images(dirname, pattern, ext)
