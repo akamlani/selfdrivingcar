@@ -122,7 +122,7 @@ def pipeline_frame(img, mtx, dist, fname=None, tracked_dir=None):
     left_lane, right_lane, inner_lane = curvature.fit_lanes(left_fitx, right_fitx)
     img_lanes = curvature.view_lanes(undist_img, Minv, left_lane, right_lane, inner_lane)
     img_annot = curvature.annotate_frame(img_lanes, window_centroids, left_fitx, right_fitx)
-    save_file(img_annot, 'curvature', fname, tracked_dir)
+    save_file(img_annot, 'curvature', fname, tracked_dir, save_type='RGB')
     return img_annot
 
 def pipeline_frame_base(img, mtx, dist, fname=None, tracked_dir=None):
@@ -131,7 +131,7 @@ def pipeline_frame_base(img, mtx, dist, fname=None, tracked_dir=None):
     """
     # Step 1b: correct distortions at boundary using serialized calibration
     undist_img = cv2.undistort(img, mtx, dist, None, mtx)
-    save_file(undist_img, 'undistorted', fname, tracked_dir, save_type=-1)
+    save_file(undist_img, 'undistorted', fname, tracked_dir, save_type='RGB')
     # Step 2: gradient and color threshold
     gc_binary = pipeline_gradient_color(undist_img)
     save_file(gc_binary, 'gc_binary', fname, tracked_dir)
