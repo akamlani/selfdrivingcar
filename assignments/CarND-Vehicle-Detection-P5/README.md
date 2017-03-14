@@ -39,20 +39,23 @@ Reduce False Positives: Heat map of recurring detections to reject outliers
 - model.py: classifier model configuration, training, and tuning
 - pipeline.py: main file for execution (similar to jupyter notebook)
 - vehicle_detection.ipynb: jupyter notebook for visual explorations
-- output_images/ : images from the pipeline execution
-- videos/, test_images/: input/output of pipeline and given files
+
+
+Output:
+- output_images/ : images from the pipeline execution of 'test_images/'
+- videos/: [Project Video via Youtube](https://youtu.be/y2TBHgbbudU)
+
+
 
 ### Execution
-```python
+```
 # also available via jupyter notebook for test images
-# note that the training and tuning takes a long time due to SVC Linear Classifier w/probabilities
+# note that the training and tuning takes a long time due to SVC Linear Classifier w/probabilities, dependent on the feature configuration
 
 # train/tune model on images
 python -t pipeline.py
-# train/tune model and video frame inference
-python -t -v pipeline.py
-# video frame inference
-python -v  pipepline.py
+# video frame inference (model must be trained first on test images)
+python -v  pipeline.py
 ```
 
 
@@ -127,7 +130,7 @@ in *selection bias*, therefore a randomized partition was reverted to instead.
 ### Classifier
 Classification was performed in two manners:
 - Evaluation of Configurations for Feature Extraction: Linear SVM
-- Training Sequence: SVM w/Linear Kernel that allows for probability estimates
+- Training Sequence: SVM w/Linear Kernel that allows for **probability** estimates
 Alternatively an ensemble classifier could have been used as well.
 
 ### Final Tuning Configuration for Feature Extraction
@@ -154,8 +157,6 @@ more optimal performing settings.
  'window': 64
  'scales': [1.0, 1.5, 1.75, 2.0]    # provides windows of (64,80,96,128)
 ```
-
-
 
 ### Sliding Windows
 Rather than extracting features for each particular image as input to the classifier, a more efficient method
@@ -189,11 +190,13 @@ As noted above, the following optimizations could have been performed:
 - Augmentation of Training data w/annotated samples
 - Originally I thought the feature extraction method via performing a K-Fold CV based on optimal ROC score would have
 helped in the classification, however this was not the case, and resulting in some false positives.  Therefore a few of
-the parameters were modified in the final feature extraction (hist_bins, orientation, num_bins).
-- Better rejection of false positives via a different classifier (ensemble)
-- Better rejection of false positives via a different method, instead of probability based estimates and Thresholding.
-As noting the thresholding does not seem to work well with a static number, for example it is possible a bounding box
-can fit just correctly, and if we require a minimum number of boxes, we could zero this out and not include it in the
-positive instance.
+the parameters were modified in the final feature extraction (hist_bins, orientation, num_bins).  As well the K-Fold CV
+takes a long time to evaluate, however this is only used during the training and evaluation phase, not on the
+inference of the video frames.
+- Other methods for rejecting false positives via a different classifier (ensemble), as well as improved methods
+over probability based estimates and thresholding.  As noting the thresholding does not seem to work well with a static number,
+for example it is possible a bounding box can fit just correctly, and if we require a minimum number of boxes, we could zero
+this out and not include it in the positive instance.  However the SVM Classifier takes a long time to even perform inference
+on, and we opted for this version of the SVM for its probability based estimates.
 - Tuning the Classifier of hyperparameters for a better max margin, however note that the SVM classifier already takes
 a long time to train.

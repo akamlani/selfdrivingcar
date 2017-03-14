@@ -71,7 +71,7 @@ def pipeline_train(clf, **config):
 
     # fit and serialize the model
     train_params = {'log': True, 'cv': True}
-    clf = mdl.train(clf, X_train, y_train, X_val, y_val, **train_params)
+    clf, score = mdl.train(clf, X_train, y_train, X_val, y_val, **train_params)
     with open('./ckpts/models.p', 'wb') as f:
         pickle.dump({'model': clf, 'scaler': scaler}, f)
     with open('./ckpts/data_partition.p', 'wb') as f:
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     if args.train:
         print("Begin Training Classifier")
         clf_svm = svm.SVC(kernel='linear', probability=True)
-        clf, clf_scaler = pipeline_train(clf_svm)
+        clf, clf_scaler = pipeline_train(clf_svm, **tune_config)
     # extract serialed model from disk
     with open('./ckpts/models.p', 'rb') as f:
         data_dict = pickle.load(f)

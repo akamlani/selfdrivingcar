@@ -40,13 +40,15 @@ def get_data_full():
     vehicle_dir    = 'data/vehicles/'
     nonvehicle_dir = 'data/non-vehicles/'
     if not os.path.exists('data/vehicles.p'):
-        ds_vehicles    = pd.Series( get_data(vehicle_dir) )           # 8792
+        vehicle_dict, vehicles = get_data(vehicle_dir)
+        ds_vehicles = pd.Series( vehicles )                 # 8792
         ds_vehicles.to_pickle('data/vehicles.p')
     else:
         ds_vehicles = pd.read_pickle(os.path.join(data_path, 'vehicles.p'))
 
     if not os.path.exists('data/nonvehicles.p'):
-        ds_nonvehicles = pd.Series( get_data(nonvehicle_dir) )        # 8968
+        nonvehicle_dict, nonvehicles = get_data(nonvehicle_dir)
+        ds_nonvehicles = pd.Series( nonvehicles )           # 8968
         ds_nonvehicles.to_pickle('data/nonvehicles.p')
     else:
         ds_nonvehicles = pd.read_pickle(os.path.join(data_path, 'nonvehicles.p'))
