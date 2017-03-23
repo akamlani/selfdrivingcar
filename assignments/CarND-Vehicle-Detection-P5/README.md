@@ -1,11 +1,11 @@
 ## Vehicle Detection
 [![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)](http://www.udacity.com/drive)
 
-Category: Object Detection
-Training Method: Classifier + Sliding Window to search vehicles in images
-Execution: Pipeline on video stream (after test images initially used)
-Goal: Estimate a *Tight Bounding Box* for positively detected vehicles, avoiding False Positives
-Reduce False Positives: Heat map of recurring detections to reject outliers
+- Category: Object Detection
+- Training Method: Classifier + Sliding Window to search vehicles in images
+- Execution: Pipeline on video stream (after test images initially used)
+- Goal: Estimate a *Tight Bounding Box* for positively detected vehicles, avoiding False Positives
+- Reduce False Positives: Heat map of recurring detections to reject outliers
 
 ### Pipeline
 - Extract Visual Features for detection purposes for classification  
