@@ -94,9 +94,9 @@ void FusionEKF::ProcessMeasurement(const MeasurementPackage &measurement_pack) {
       //Initialize state vector (px, py)
       px = measurement_pack.raw_measurements_[0];
       py = measurement_pack.raw_measurements_[1];
-      ekf_.x_ << px, py, 0, 0;
     }
 
+    ekf_.x_ << px, py, 0, 0;
     previous_timestamp_ = measurement_pack.timestamp_;
     //done initializing, no need to predict or update
     is_initialized_ = true;
